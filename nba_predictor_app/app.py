@@ -5,6 +5,8 @@ import json
 from typing import Dict, Any
 import os
 from dotenv import load_dotenv
+from nba_api.stats.static import players
+from nba_api.stats.endpoints import playercareerstats
 
 # Load environment variables
 load_dotenv()
@@ -15,24 +17,87 @@ if not OPENAI_API_KEY:
     st.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
     st.stop()
 
-# Initialize MCP client
-@st.cache_resource
-def get_mcp_base_url():
-    return "http://127.0.0.1:6274"
+def search_player(first_name: str, last_name: str) -> Dict[str, Any]:
+    """Search for an NBA player by name."""
+    # Get all players
+    all_players = players.get_players()
+    
+    # Filter for the specific player (case-insensitive)
+    player = next(
+        (p for p in all_players 
+         if p['first_name'].lower() == first_name.lower() 
+         and p['last_name'].lower() == last_name.lower()),
+        None
+    )
+    
+    if player:
+        return {
+            "success": True,
+            "player": player
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"Player {first_name} {last_name} not found"
+        }
 
-def call_mcp_tool(tool_name, **params):
-    """Helper function to call MCP tools"""
+def get_player_stats(player_id: int, season: str = "2023-24") -> Dict[str, Any]:
+    """Get player statistics for a given season."""
     try:
-        response = requests.post(
-            f"{get_mcp_base_url()}/tools/{tool_name}",
-            json=params,
-            timeout=10
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error calling MCP tool: {str(e)}")
-        return {"success": False, "message": str(e)}
+        # Get career stats which includes season-by-season breakdown
+        career_stats = playercareerstats.PlayerCareerStats(player_id=player_id)
+        
+        # Convert to pandas DataFrame
+        season_stats = career_stats.get_data_frames()[0]
+        
+        # Filter for the requested season
+        season_data = season_stats[season_stats['SEASON_ID'] == season].to_dict('records')
+        
+        if season_data:
+            stats = season_data[0]
+            games_played = stats['GP']
+            
+            # Calculate per-game averages
+            if games_played > 0:
+                stats['PTS'] = stats['PTS'] / games_played
+                stats['REB'] = stats['REB'] / games_played
+                stats['AST'] = stats['AST'] / games_played
+                stats['STL'] = stats['STL'] / games_played
+                stats['BLK'] = stats['BLK'] / games_played
+                stats['MIN'] = stats['MIN'] / games_played
+            
+            return {
+                "success": True,
+                "stats": stats
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"No stats found for season {season}"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+def get_available_seasons(player_id: int) -> Dict[str, Any]:
+    """Get all available seasons for a player."""
+    try:
+        career_stats = playercareerstats.PlayerCareerStats(player_id=player_id)
+        seasons_df = career_stats.get_data_frames()[0]
+        available_seasons = seasons_df['SEASON_ID'].tolist()
+        
+        return {
+            "success": True,
+            "seasons": available_seasons
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": str(e)
+        }
 
 def ask_gpt(question: str, context: Dict[str, Any]) -> str:
     """Ask ChatGPT a question about the player statistics"""
@@ -96,7 +161,7 @@ if st.button("Search Player"):
     if first_name and last_name:
         with st.spinner("Searching for player..."):
             # Search for player
-            result = call_mcp_tool("search_player", first_name=first_name, last_name=last_name)
+            result = search_player(first_name=first_name, last_name=last_name)
             
             if result["success"]:
                 player = result["player"]
@@ -111,7 +176,7 @@ if st.button("Search Player"):
                 
                 with st.spinner("Loading available seasons..."):
                     # Get available seasons
-                    seasons_result = call_mcp_tool("get_available_seasons", player_id=player['id'])
+                    seasons_result = get_available_seasons(player_id=player['id'])
                     
                     if seasons_result["success"]:
                         # Sort seasons in descending order (most recent first)
@@ -126,7 +191,7 @@ if st.button("Search Player"):
                         
                         with st.spinner("Loading player statistics..."):
                             # Get stats for selected season
-                            stats_result = call_mcp_tool("get_player_stats", player_id=player['id'], season=season)
+                            stats_result = get_player_stats(player_id=player['id'], season=season)
                             
                             if stats_result["success"]:
                                 # Store the current stats in session state
@@ -135,10 +200,6 @@ if st.button("Search Player"):
                                     "season": season,
                                     "stats": stats_result["stats"]
                                 }
-                            else:
-                                st.error(f"Error getting stats: {stats_result['message']}")
-                    else:
-                        st.error(f"Error getting seasons: {seasons_result['message']}")
             else:
                 st.error(f"Error: {result['message']}")
     else:
