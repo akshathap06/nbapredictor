@@ -1,0 +1,32 @@
+agents:
+  nba_predictor:
+    name: NBA Game Predictor
+    description: An agent that predicts NBA game outcomes
+    tools:
+      - name: get_team_stats
+        description: Retrieves team statistics from NBA API
+      - name: analyze_matchup
+        description: Analyzes matchup between two teams
+      - name: make_prediction
+        description: Makes final prediction based on analysis
+  nba_stats:
+    name: NBA Stats Agent
+    description: An agent that fetches and analyzes NBA player statistics
+    tools:
+      - name: search_player
+        description: Search for a player by name
+        module: nba_predictor_app.mcp_agents.tools.nba_api
+        class: NBAApiTool
+        method: search_player
+
+      - name: get_player_stats
+        description: Get player statistics for a given season
+        module: nba_predictor_app.mcp_agents.tools.nba_api
+        class: NBAApiTool
+        method: get_player_stats
+
+      - name: calculate_averages
+        description: Calculate season averages from player statistics
+        module: nba_predictor_app.mcp_agents.tools.nba_api
+        class: NBAApiTool
+        method: calculate_season_averages

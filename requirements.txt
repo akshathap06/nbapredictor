@@ -1,0 +1,8 @@
+streamlit
+pandas
+requests
+nba_api
+fastapi
+uvicorn
+python-dotenv
+pydantic 
